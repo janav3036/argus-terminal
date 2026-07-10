@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python bytecode / cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Packaging / distribution
+*.egg-info/
+build/
+dist/
+
+# Local SQLite cache (core/cache.py) — fetched data, not source
+*.sqlite
+*.sqlite3
+*.db
+
+# Editor / OS cruft
+.DS_Store
+.idea/
+.vscode/
+
+# Env / secrets
+.env
