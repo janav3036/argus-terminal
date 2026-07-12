@@ -14,7 +14,7 @@ class ArgusMainWindow(QMainWindow):
         self.setWindowTitle("Argus")
         self.resize(1600, 900)
 
-        self._modules = [cls() for cls in MODULES]
+        self._modules = MODULES
         self._module_widgets: dict[ArgusModule, QWidget] = {}
 
         self._sidebar = Sidebar(self._modules)
