@@ -1,1 +1,7 @@
+numpy==2.5.1
+pandas==3.0.3
+plotly==6.9.0
+pyarrow==25.0.0
 PySide6==6.11.1
+scipy==1.18.0
+yfinance==1.5.1
