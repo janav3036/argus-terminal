@@ -7,13 +7,17 @@ from modules.volatility_lab.heston_bridge import (
     implied_vol,
 )
 
-def build_smile_html(params: HestonParams, data: MarketData, expiry_idx: int = 0) -> str:
+def compute_model_ivs(params: HestonParams, data: MarketData, expiry_idx: int = 0):
     T = data.expiries[expiry_idx]
-    market_ivs = data.market_ivs[expiry_idx]
-
     strikes_fft, prices_fft = carr_madan_price(params, data.S, data.r, data.q, T)
     model_prices = price_at_strikes(strikes_fft * data.S, prices_fft, data.strikes)
-    model_ivs = implied_vol(model_prices, data.S, data.strikes, data.r, data.q, T)
+    return implied_vol(model_prices, data.S, data.strikes, data.r, data.q, T)
+
+def build_smile_html(params: HestonParams, data: MarketData, expiry_idx: int = 0, model_ivs=None) -> str:
+    T = data.expiries[expiry_idx]
+    market_ivs = data.market_ivs[expiry_idx]
+    if model_ivs is None:
+        model_ivs = compute_model_ivs(params, data, expiry_idx)
 
     moneyness = data.strikes / data.S
 
