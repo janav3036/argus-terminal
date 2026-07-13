@@ -22,4 +22,4 @@ calibrate = _mods["calibration.calibrate"].calibrate
 carr_madan_price = _mods["models.heston_fft"].carr_madan_price
 price_at_strikes = _mods["models.heston_fft"].price_at_strikes
 implied_vol = _mods["models.black_scholes"].implied_vol
-
+bs_call = _mods["models.black_scholes"].bs_call

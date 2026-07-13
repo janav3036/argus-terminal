@@ -5,13 +5,14 @@ from PySide6.QtCore import Qt, QUrl, QDate
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QCalendarWidget, QComboBox, QTableWidget, QTableWidgetItem,
-    QFrame, QHeaderView
+    QFrame, QHeaderView, QTabWidget
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from core.base_module import ArgusModule
 from modules.volatility_lab.calibration_worker import CalibrationWorker
 from modules.volatility_lab.smile_chart import build_smile_html, compute_model_ivs
+from modules.volatility_lab.error_heatmap import build_error_heatmap_html
 
 class VolatilityLabModule(ArgusModule):
     """Wraps Heston Calibration Engine as Argus Module"""
@@ -57,8 +58,17 @@ class VolatilityLabModule(ArgusModule):
         chart_frame = QFrame()
         chart_frame.setFrameShape(QFrame.Box)
         chart_layout = QVBoxLayout(chart_frame)
-        self._chart_view = QWebEngineView()
-        chart_layout.addWidget(self._chart_view)
+
+        self._chart_tabs = QTabWidget()
+
+        self._smile_view = QWebEngineView()
+        self._chart_tabs.addTab(self._smile_view, "Smile Chart")
+
+        self._heatmap_view = QWebEngineView()
+        self._chart_tabs.addTab(self._heatmap_view, "Error Heatmap")
+
+        chart_layout.addWidget(self._chart_tabs)
+
         middle_row.addWidget(chart_frame, 3)
 
         right_col = QVBoxLayout()
@@ -184,9 +194,14 @@ class VolatilityLabModule(ArgusModule):
                 self._raw_table.setItem(row, col, item)
 
         html = build_smile_html(params, data, model_ivs=model_ivs)
-        chart_path = Path(tempfile.gettempdir()) / f"argus_vol_lab_smile_{id(self)}.html"
-        chart_path.write_text(html, encoding="utf-8")
-        self._chart_view.setUrl(QUrl.fromLocalFile(str(chart_path)))
+        smile_path = Path(tempfile.gettempdir()) / f"argus_vol_lab_smile_{id(self)}.html"
+        smile_path.write_text(html, encoding="utf-8")
+        self._smile_view.setUrl(QUrl.fromLocalFile(str(smile_path)))
+
+        heatmap_html = build_error_heatmap_html(params, data)
+        heatmap_path = Path(tempfile.gettempdir()) / f"argus_vol_lab_heatmap_{id(self)}.html"
+        heatmap_path.write_text(heatmap_html, encoding="utf-8")
+        self._heatmap_view.setUrl(QUrl.fromLocalFile(str(heatmap_path)))
 
 
     def _on_calibration_failed(self, message: str) -> None:
