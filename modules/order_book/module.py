@@ -1,3 +1,5 @@
+from collections import deque
+import pyqtgraph as pg
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -8,6 +10,8 @@ from core.base_module import ArgusModule
 from modules.order_book.bybit_bridge import INSTRUMENTS
 from modules.order_book.lob_feed_thread import LOBFeedThread
 
+PRICE_HISTORY_LEN = 300
+
 class OrderBookModule(ArgusModule):
     """Wraps LOB microstructure lab as an argus module"""
 
@@ -15,6 +19,9 @@ class OrderBookModule(ArgusModule):
         self._thread: LOBFeedThread | None = None
         self._latest: dict[str, dict] = {}
         self._selected_symbol = INSTRUMENTS[0]
+        self._price_history: dict[str, deque[float]] = {
+            symbol: deque(maxlen=PRICE_HISTORY_LEN) for symbol in INSTRUMENTS
+        }
 
     def get_sidebar_label(self) -> str:
         return "Order Book"
@@ -38,6 +45,9 @@ class OrderBookModule(ArgusModule):
     def _on_data(self, payload: dict) -> None:
         symbol = payload["symbol"]
         self._latest[symbol] = payload
+        mid = payload.get("mid_price")
+        if mid is not None:
+            self._price_history[symbol].append(mid)
         if symbol == self._selected_symbol:
             self._refresh_display()
 
@@ -58,6 +68,8 @@ class OrderBookModule(ArgusModule):
                 )
             else:
                 label.setText(f"{value:,.2f}")    
+
+        self._price_curve.setData(list(self._price_history[self._selected_symbol]))
 
     def shutdown(self) -> None:
         if self._thread is not None:
@@ -124,7 +136,18 @@ class OrderBookModule(ArgusModule):
             self._value_labels[key] = value
 
         outer_layout.addWidget(metrics_frame)
-        outer_layout.addStretch()
+        
+        chart_frame = QFrame()
+        chart_frame.setFrameShape(QFrame.Box)
+        chart_layout = QVBoxLayout(chart_frame)
+
+        self._price_plot = pg.PlotWidget()
+        self._price_plot.setBackground("#141414")
+        self._price_plot.showGrid(x=False, y=True, alpha=0.15)
+        self._price_curve = self._price_plot.plot(pen=pg.mkPen("#2B5EA7", width=1.5))
+        chart_layout.addWidget(self._price_plot)
+
+        outer_layout.addWidget(chart_frame, 1)
 
         self._tab_group.buttonClicked.connect(self._on_tab_clicked)
 
