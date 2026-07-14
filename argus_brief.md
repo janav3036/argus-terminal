@@ -106,10 +106,17 @@ The purpose is to give market context alongside the quantitative views in other 
 **Center column: Market Overview**
 Two components stacked vertically:
 
-*Intraday NIFTY 50 chart (top half):*
-pyqtgraph line chart showing NIFTY price for the last 5 trading days (rolling window).
-Updates tick by tick. VWAP overlay. Volume bars in lower panel. This is the visual
-anchor of the home page.
+*Fixed watchlist OHLC chart (top half):*
+pyqtgraph candlestick chart (reusing the `CandlestickItem` built for Module 2) over a
+small fixed watchlist of instruments, not free-text search — a tab/selector per symbol,
+same interaction pattern as the Order Book module. Data comes from `yfinance`, which
+serves **delayed** NSE/BSE quotes (~15-20 min lag) — polled on a refresh timer like the
+existing top bar feed, not a true tick stream. This replaces the originally-specified
+single-NIFTY-50 rolling line chart. Watchlist membership and refresh interval TBD.
+
+**v2 idea, not scoped:** free-text stock search instead of/alongside the fixed list —
+deferred since it requires spinning up a data thread on demand per searched symbol
+rather than the fixed set of long-lived threads used everywhere else in the app.
 
 *NIFTY 50 Sector Heatmap (bottom half):*
 Treemap-style grid — each sector as a colored tile, sized by market cap weight,

@@ -100,7 +100,17 @@ class OrderBookModule(ArgusModule):
             candle[1] = max(candle[1], price)
             candle[2] = min(candle[2], price)
             candle[3] = price
-
+    def _make_ladder_row(self, color: str) -> tuple[QHBoxLayout, QLabel, QLabel]:
+        row = QHBoxLayout()
+        price_label = QLabel("")
+        price_label.setStyleSheet(f"color: {color}; font-size: 12px;")
+        size_label = QLabel("")
+        size_label.setAlignment(Qt.AlignRight)
+        size_label.setStyleSheet("color: #888888; font-size: 12px;")
+        row.addWidget(price_label)
+        row.addWidget(size_label)
+        return row, price_label, size_label
+    
     def _on_data(self, payload: dict) -> None:
         symbol = payload["symbol"]
         self._latest[symbol] = payload
@@ -110,6 +120,65 @@ class OrderBookModule(ArgusModule):
             self._update_candle(symbol, mid)
         if symbol == self._selected_symbol:
             self._refresh_display()
+
+    def _refresh_ladder(self) -> None:
+        data = self._latest.get(self._selected_symbol, {})
+        asks = list(reversed(data.get("top_asks", [])))
+        bids = data.get("top_bids", [])
+
+        for i, (price_label, size_label) in enumerate(self._ask_row_labels):
+            if i < len(asks):
+                price, size = asks[i]
+                price_label.setText(f"{price:,.2f}")
+                size_label.setText(f"{size:.4f}")
+            else:
+                price_label.setText("")
+                size_label.setText("")
+
+        for i, (price_label, size_label) in enumerate(self._bid_row_labels):
+            if i < len(bids):
+                price, size = bids[i]
+                price_label.setText(f"{price:,.2f}")
+                size_label.setText(f"{size:.4f}")
+            else:
+                price_label.setText("")
+                size_label.setText("")
+
+        if asks and bids:
+            spread = asks[-1][0] - bids[0][0]
+            self._ladder_spread_label.setText(f"spread {spread:.2f}")
+        else:
+            self._ladder_spread_label.setText("")
+    
+    def _refresh_depth_chart(self) -> None:
+        data = self._latest.get(self._selected_symbol, {})
+        bids = data.get("top_bids", [])
+        asks = data.get("top_asks", [])
+
+        running = 0.0
+        bid_points = []
+        for price, size in bids:
+            running += size
+            bid_points.append((price, running))
+        bid_points.reverse()
+
+        running = 0.0
+        ask_points = []
+        for price, size in asks:
+            running += size
+            ask_points.append((price, running))
+
+        if bid_points:
+            x_bids, y_bids = zip(*bid_points)
+            self._bid_depth_curve.setData(x_bids, y_bids)
+        else:
+            self._bid_depth_curve.setData([], [])
+
+        if ask_points:
+            x_asks, y_asks = zip(*ask_points)
+            self._ask_depth_curve.setData(x_asks, y_asks)
+        else:
+            self._ask_depth_curve.setData([], [])
 
     def _refresh_display(self) -> None:
         data = self._latest.get(self._selected_symbol, {})
@@ -135,6 +204,8 @@ class OrderBookModule(ArgusModule):
         if current is not None:
             candle_data.append((len(candles), *current))
         self._candle_item.set_data(candle_data)
+        self._refresh_ladder()
+        self._refresh_depth_chart()
 
     def shutdown(self) -> None:
         if self._thread is not None:
@@ -214,6 +285,56 @@ class OrderBookModule(ArgusModule):
         chart_layout.addWidget(self._price_plot)
 
         outer_layout.addWidget(chart_frame, 1)
+
+        ladder_frame = QFrame()
+        ladder_frame.setFrameShape(QFrame.Box)
+        ladder_layout = QVBoxLayout(ladder_frame)
+
+        ladder_heading = QLabel("DEPTH LADDER")
+        ladder_heading.setAlignment(Qt.AlignCenter)
+        ladder_heading.setStyleSheet("color: #888888; font-size: 10px; padding: 4px")
+        ladder_layout.addWidget(ladder_heading)        
+        
+        self._ask_row_labels: list[tuple[QLabel, QLabel]] = []
+        for _ in range(8):
+            row, price_label, size_label = self._make_ladder_row("#E74C3C")
+            ladder_layout.addLayout(row)
+            self._ask_row_labels.append((price_label, size_label))
+
+        self._ladder_spread_label = QLabel("")
+        self._ladder_spread_label.setAlignment(Qt.AlignCenter)
+        self._ladder_spread_label.setStyleSheet("color: #888888; font-size: 11px; padding: 4px;")
+        ladder_layout.addWidget(self._ladder_spread_label)
+
+        self._bid_row_labels: list[tuple[QLabel, QLabel]] = []
+        for _ in range(8):
+            row, price_label, size_label = self._make_ladder_row("#2ECC71")
+            ladder_layout.addLayout(row)
+            self._bid_row_labels.append((price_label, size_label))
+
+        outer_layout.addWidget(ladder_frame)
+
+        depth_frame = QFrame()
+        depth_frame.setFrameShape(QFrame.Box)
+        depth_layout = QVBoxLayout(depth_frame)
+
+        depth_heading = QLabel("CUMULATIVE MARKET DEPTH")
+        depth_heading.setAlignment(Qt.AlignCenter)
+        depth_heading.setStyleSheet("color: #888888; font-size: 10px; padding: 4px;")
+        depth_layout.addWidget(depth_heading)
+
+        self._depth_plot = pg.PlotWidget()
+        self._depth_plot.setBackground("#141414")
+        self._depth_plot.showGrid(x=False, y=True, alpha=0.15)
+        self._bid_depth_curve = self._depth_plot.plot(
+            pen=pg.mkPen("#2ECC71", width=1.5), fillLevel=0, brush=pg.mkBrush(46, 204, 113, 60)
+        )
+        self._ask_depth_curve = self._depth_plot.plot(
+            pen=pg.mkPen("#E74C3C", width=1.5), fillLevel=0, brush=pg.mkBrush(231, 76, 60, 60)
+        )
+        depth_layout.addWidget(self._depth_plot)
+
+        outer_layout.addWidget(depth_frame, 1)
 
         self._tab_group.buttonClicked.connect(self._on_tab_clicked)
 

@@ -38,7 +38,13 @@ class LOBFeedThread(ArgusDataThread):
 
         for symbol in touched:
             features = compute_features(self._books[symbol])
-            self.data_updated.emit({"symbol": symbol, **features})
+            book = self._books[symbol]
+            self.data_updated.emit({
+                "symbol": symbol,
+                "top_bids": book.top_bids(8),
+                "top_asks": book.top_asks(8),
+                **features,
+            })
 
     def stop(self) -> None:
         if self._client is not None and self._loop is not None:
