@@ -1,6 +1,8 @@
 from collections import deque
+import time
 import pyqtgraph as pg
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QPointF, QRectF
+from PySide6.QtGui import QPainter, QPicture, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QButtonGroup, QFrame, QGridLayout
@@ -11,6 +13,39 @@ from modules.order_book.bybit_bridge import INSTRUMENTS
 from modules.order_book.lob_feed_thread import LOBFeedThread
 
 PRICE_HISTORY_LEN = 300
+CANDLE_INTERVAL_SECONDS = 1
+CANDLE_HISTORY_LEN = 120
+
+class CandlestickItem(pg.GraphicsObject):
+    """Renders a list of (x, ohlc) tuples"""
+
+    def __init__(self, ):
+        super().__init__()
+        self._picture = QPicture()
+
+    def set_data(self, candles: list[tuple[float, float, float, float, float]]) -> None:
+        self._picture = QPicture()
+        painter = QPainter(self._picture)
+        width = 0.6
+
+        for x, open_, high, low, close in candles:
+            color = QColor("#2ECC71") if close >= open_ else QColor("#E74C3C")
+            painter.setPen(pg.mkPen(color))
+            painter.drawLine(QPointF(x, low), QPointF(x, high))
+            painter.setBrush(pg.mkBrush(color))
+            body_top = max(open_, close)
+            body_height = abs(close - open_) or 0.01
+            painter.drawRect(QRectF(x - width / 2, body_top, width, -body_height))
+
+        painter.end()
+        self.informViewBoundsChanged()
+        self.update()
+
+    def paint(self, painter, *args) -> None:
+        painter.drawPicture(0, 0, self._picture)
+
+    def boundingRect(self):
+        return QRectF(self._picture.boundingRect())
 
 class OrderBookModule(ArgusModule):
     """Wraps LOB microstructure lab as an argus module"""
@@ -22,6 +57,11 @@ class OrderBookModule(ArgusModule):
         self._price_history: dict[str, deque[float]] = {
             symbol: deque(maxlen=PRICE_HISTORY_LEN) for symbol in INSTRUMENTS
         }
+        self._candles: dict[str, deque[tuple[float, float, float, float]]] = {
+            symbol: deque(maxlen=CANDLE_HISTORY_LEN) for symbol in INSTRUMENTS
+        }
+        self._current_candle: dict[str, list[float]] = {}
+        self._current_bucket: dict[str, int] = {}
 
     def get_sidebar_label(self) -> str:
         return "Order Book"
@@ -42,12 +82,32 @@ class OrderBookModule(ArgusModule):
         self._selected_symbol = button.text()
         self._refresh_display()
 
+    def _update_candle(self, symbol: str, price: float) -> None:
+        bucket = int(time.time() // CANDLE_INTERVAL_SECONDS)
+        current_bucket = self._current_bucket.get(symbol)
+
+        if current_bucket is None:
+            self._current_bucket[symbol] = bucket
+            self._current_candle[symbol] = [price, price, price, price]
+            return
+
+        if bucket != current_bucket:
+            self._candles[symbol].append(tuple(self._current_candle[symbol]))
+            self._current_bucket[symbol] = bucket
+            self._current_candle[symbol] = [price, price, price, price]
+        else:
+            candle = self._current_candle[symbol]
+            candle[1] = max(candle[1], price)
+            candle[2] = min(candle[2], price)
+            candle[3] = price
+
     def _on_data(self, payload: dict) -> None:
         symbol = payload["symbol"]
         self._latest[symbol] = payload
         mid = payload.get("mid_price")
         if mid is not None:
             self._price_history[symbol].append(mid)
+            self._update_candle(symbol, mid)
         if symbol == self._selected_symbol:
             self._refresh_display()
 
@@ -68,8 +128,13 @@ class OrderBookModule(ArgusModule):
                 )
             else:
                 label.setText(f"{value:,.2f}")    
-
-        self._price_curve.setData(list(self._price_history[self._selected_symbol]))
+        
+        candles = self._candles[self._selected_symbol]
+        current = self._current_candle.get(self._selected_symbol)
+        candle_data = [(i, o, h, l, c) for i, (o, h, l, c) in enumerate(candles)]
+        if current is not None:
+            candle_data.append((len(candles), *current))
+        self._candle_item.set_data(candle_data)
 
     def shutdown(self) -> None:
         if self._thread is not None:
@@ -144,7 +209,8 @@ class OrderBookModule(ArgusModule):
         self._price_plot = pg.PlotWidget()
         self._price_plot.setBackground("#141414")
         self._price_plot.showGrid(x=False, y=True, alpha=0.15)
-        self._price_curve = self._price_plot.plot(pen=pg.mkPen("#2B5EA7", width=1.5))
+        self._candle_item = CandlestickItem()
+        self._price_plot.addItem(self._candle_item)
         chart_layout.addWidget(self._price_plot)
 
         outer_layout.addWidget(chart_frame, 1)
