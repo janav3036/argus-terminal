@@ -16,3 +16,14 @@ class ArgusModule(ABC):
     def build_widget(self) -> QWidget:
         """Construct and return the full QWidget for this module's page"""
 
+    def shutdown(self) -> None:
+        """Stop any background threads owned by this module. Default: nothing to stop."""
+
+    def get_status_source(self) -> str | None:
+        """Name of the status bar source this module drives, or None"""
+        return None
+    
+    def get_status_signal(self):
+        """Qt Signal(str) emitting live stale or disconnected or None if not applicable"""
+        return None
+    

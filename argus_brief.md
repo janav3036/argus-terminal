@@ -179,6 +179,16 @@ tick by tick. Direction predictor confidence score displayed as a gauge (bullish
 neutral / bearish). Instrument selector: BTCUSDT, ETHUSDT, or the third recorded
 instrument from Project 2.
 
+**v1 scope (2026-07-13):** `features/microstructure.py` in Project 2 only provides
+mid price, spread, relative spread, order-book imbalance, and microprice — ship v1
+with those, driven off a live `OrderBook` fed by `recorder/bybit_ws.py` rows.
+Deferred to v2, not yet buildable against the source project as it stands:
+- **Realized/effective spread, Kyle's lambda, queue position** — no implementation
+  exists in Project 2; need to be derived/added there first.
+- **Direction predictor gauge** — `models/predictor.py`'s `DirectionPredictor`
+  trains on demand from parquet datasets and has no persisted/pretrained model;
+  needs a training + persistence story before it can back a live gauge.
+
 ---
 
 ### Module 3 — Options Pricer

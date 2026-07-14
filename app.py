@@ -54,9 +54,17 @@ class ArgusMainWindow(QMainWindow):
             widget = module.build_widget()
             self._module_widgets[module] = widget
             self._content.addWidget(widget)
+
+        source = module.get_status_source()
+        signal = module.get_status_signal()
+        if source is not None and signal is not None:
+            signal.connect(lambda state, src=source: self._status_bar.set_status(src, state))
+
         self._content.setCurrentWidget(self._module_widgets[module])
         
     def closeEvent(self, event) -> None:
+        for module, widget in self._module_widgets.items():
+            module.shutdown()
         self._yfinance_thread.requestInterruption()
         self._yfinance_thread.wait()
         super().closeEvent(event)

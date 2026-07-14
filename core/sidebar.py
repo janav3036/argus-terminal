@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QWidget
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, QTimer
 from core.base_module import ArgusModule
 
 class Sidebar(QListWidget):
@@ -12,6 +12,10 @@ class Sidebar(QListWidget):
         self._modules = modules
         self._populate()
         self.currentRowChanged.connect(self._on_row_changed)
+
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self._refresh_previews)
+        self._refresh_timer.start(2000)
     
     def _populate(self) -> None:
         for module in self._modules:
@@ -25,4 +29,8 @@ class Sidebar(QListWidget):
             return
         self.module_selected.emit(self._modules[row])
         
-    
+    def _refresh_previews(self) -> None:
+        for row, module in enumerate(self._modules):
+            label = module.get_sidebar_label()
+            preview = module.get_status_preview()
+            self.item(row).setText(f"{label}\n{preview}")
