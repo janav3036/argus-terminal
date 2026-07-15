@@ -5,7 +5,8 @@ from PySide6.QtCore import Qt,QPointF, QRectF
 from PySide6.QtGui import QPainter, QPicture, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QButtonGroup, QFrame, QGridLayout
+    QPushButton, QButtonGroup, QFrame, QGridLayout,
+    QListWidget, QListWidgetItem, QScrollArea
 )
 
 from core.base_module import ArgusModule 
@@ -14,7 +15,7 @@ from modules.order_book.lob_feed_thread import LOBFeedThread
 
 PRICE_HISTORY_LEN = 300
 CANDLE_INTERVAL_SECONDS = 1
-CANDLE_HISTORY_LEN = 120
+CANDLE_HISTORY_LEN = 300
 
 class CandlestickItem(pg.GraphicsObject):
     """Renders a list of (x, ohlc) tuples"""
@@ -62,6 +63,14 @@ class OrderBookModule(ArgusModule):
         }
         self._current_candle: dict[str, list[float]] = {}
         self._current_bucket: dict[str, int] = {}
+        self._feed_log: dict[str, deque[dict]] = {
+            symbol: deque(maxlen=200) for symbol in INSTRUMENTS
+        }
+        self._depth_needs_fit = True
+        self._connection_status = "disconnected"
+        self._connected_since: float | None = None
+        self._reconnect_count = 0
+        self._sequence_gap_count = 0
 
     def get_sidebar_label(self) -> str:
         return "Order Book"
@@ -78,9 +87,6 @@ class OrderBookModule(ArgusModule):
     def get_status_signal(self):
         return self._thread.status_changed if self._thread is not None else None
 
-    def _on_tab_clicked(self, button) -> None:
-        self._selected_symbol = button.text()
-        self._refresh_display()
 
     def _update_candle(self, symbol: str, price: float) -> None:
         bucket = int(time.time() // CANDLE_INTERVAL_SECONDS)
@@ -120,6 +126,37 @@ class OrderBookModule(ArgusModule):
             self._update_candle(symbol, mid)
         if symbol == self._selected_symbol:
             self._refresh_display()
+
+    def _on_tab_clicked(self, button) -> None:
+        self._selected_symbol = button.text()
+        self._depth_needs_fit = True
+        self._rebuild_feed_log_widget()
+        self._refresh_display()
+        self._price_plot.setXRange(0, CANDLE_HISTORY_LEN, padding=0.02)
+        self._price_plot.enableAutoRange(axis="y")
+        self._price_plot.getViewBox().updateAutoRange()
+
+    def _on_tick(self, row: dict) -> None:
+        symbol = row["symbol"]
+        self._feed_log[symbol].append(row)
+        if symbol != self._selected_symbol:
+            return
+        
+        text = f"{row['side'].upper():>3}   {row['price']:,.2f}     {row['size']:.4f}"
+        item = QListWidgetItem(text)
+        item.setForeground(QColor("#2ECC71") if row["side"] == "bid" else QColor("#E74C3C"))
+        self._feed_log_widget.insertItem(0, item)
+        while self._feed_log_widget.count() > 40:
+            self._feed_log_widget.takeItem(self._feed_log_widget.count() - 1)
+
+    def _rebuild_feed_log_widget(self) -> None:
+        self._feed_log_widget.clear()
+        for row in reversed(self._feed_log[self._selected_symbol]):
+            text = f"{row['side'].upper():>3}  {row['price']:,.2f}  {row['size']:.4f}"
+            item = QListWidgetItem(text)
+            item.setForeground(QColor("#2ECC71") if row["side"] == "bid" else QColor("#E74C3C"))
+            self._feed_log_widget.addItem(item)
+
 
     def _refresh_ladder(self) -> None:
         data = self._latest.get(self._selected_symbol, {})
@@ -180,6 +217,26 @@ class OrderBookModule(ArgusModule):
         else:
             self._ask_depth_curve.setData([], [])
 
+        if self._depth_needs_fit and (bid_points or ask_points):
+            self._depth_plot.getViewBox().autoRange()
+            self._depth_needs_fit = False
+
+    def _update_price_zoom_limits(self, candle_data: list[tuple[float, float, float, float, float]]) -> None:
+        if not candle_data:
+            return
+
+        highs = [c[2] for c in candle_data]
+        lows = [c[3] for c in candle_data]
+        data_high = max(highs)
+        data_low = min(lows)
+        span = data_high - data_low
+        mid_price = (data_high + data_low) / 2
+
+        min_y_range = max(mid_price * 0.0005, span * 0.05, 0.0001)
+        max_y_range = max(span * 5, min_y_range * 10)
+
+        self._price_plot.setLimits(minYRange=min_y_range, maxYRange=max_y_range)
+
     def _refresh_display(self) -> None:
         data = self._latest.get(self._selected_symbol, {})
         for key, _ in self._metrics_defs:
@@ -204,6 +261,7 @@ class OrderBookModule(ArgusModule):
         if current is not None:
             candle_data.append((len(candles), *current))
         self._candle_item.set_data(candle_data)
+        self._update_price_zoom_limits(candle_data)
         self._refresh_ladder()
         self._refresh_depth_chart()
 
@@ -282,6 +340,14 @@ class OrderBookModule(ArgusModule):
         self._price_plot.showGrid(x=False, y=True, alpha=0.15)
         self._candle_item = CandlestickItem()
         self._price_plot.addItem(self._candle_item)
+        self._price_plot.setXRange(0, CANDLE_HISTORY_LEN, padding=0.02)
+        self._price_plot.setMouseEnabled(x=True, y=True)
+        self._price_plot.setLimits(
+            xMin=0, xMax=CANDLE_HISTORY_LEN,
+            minXRange=10, maxXRange=CANDLE_HISTORY_LEN,
+        )
+        self._price_plot.enableAutoRange(axis="y")
+        self._price_plot.getViewBox().setDefaultPadding(0.05)
         chart_layout.addWidget(self._price_plot)
 
         outer_layout.addWidget(chart_frame, 1)
@@ -332,14 +398,37 @@ class OrderBookModule(ArgusModule):
         self._ask_depth_curve = self._depth_plot.plot(
             pen=pg.mkPen("#E74C3C", width=1.5), fillLevel=0, brush=pg.mkBrush(231, 76, 60, 60)
         )
+        self._depth_plot.setMouseEnabled(x=False, y=False)
+        self._depth_plot.getViewBox().setDefaultPadding(0.05)
+        self._depth_plot.getViewBox().disableAutoRange()
         depth_layout.addWidget(self._depth_plot)
 
         outer_layout.addWidget(depth_frame, 1)
+
+        feed_log_frame = QFrame()
+        feed_log_frame.setFrameShape(QFrame.Box)
+        feed_log_layout = QVBoxLayout(feed_log_frame)
+
+        feed_log_heading = QLabel("FEED LOG")
+        feed_log_heading.setAlignment(Qt.AlignCenter)
+        feed_log_heading.setStyleSheet("color: #888888; font-size: 10px; padding: 4px;")
+        feed_log_layout.addWidget(feed_log_heading)
+
+        self._feed_log_widget = QListWidget()
+        self._feed_log_widget.setStyleSheet("font-family: monospace; font-size: 11px;")
+        feed_log_layout.addWidget(self._feed_log_widget)
+
+        outer_layout.addWidget(feed_log_frame, 1)
 
         self._tab_group.buttonClicked.connect(self._on_tab_clicked)
 
         self._thread = LOBFeedThread()
         self._thread.data_updated.connect(self._on_data)
+        self._thread.tick_received.connect(self._on_tick)
         self._thread.start()
 
-        return widget
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setWidget(widget)
+        return scroll_area
