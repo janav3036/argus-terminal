@@ -1,7 +1,7 @@
 from collections import deque
 import time
 import pyqtgraph as pg
-from PySide6.QtCore import Qt,QPointF, QRectF
+from PySide6.QtCore import Qt,QPointF, QRectF, QTimer
 from PySide6.QtGui import QPainter, QPicture, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -126,6 +126,34 @@ class OrderBookModule(ArgusModule):
             self._update_candle(symbol, mid)
         if symbol == self._selected_symbol:
             self._refresh_display()
+
+    def _on_connection_event(self, event: dict) -> None:
+        kind = event["event"]
+        if kind == "connected":
+            self._connection_status = "connected"
+            self._connected_since = time.time()
+        elif kind == "reconnecting":
+            self._connection_status = "reconnecting"
+            self._connected_since = None
+            self._reconnect_count += 1
+        elif kind == "sequence_gap":
+            self._sequence_gap_count += 1
+        self._refresh_diagnostics()
+        
+
+    def _refresh_diagnostics(self) -> None:
+        self._diagnostics_labels["status"].setText(self._connection_status.capitalize())
+
+        if self._connected_since is not None:
+            elapsed = int(time.time() - self._connected_since)
+            minutes, seconds = divmod(elapsed, 60)
+            self._diagnostics_labels['connected_since'].setText(f"{minutes:02d}:{seconds:02d}")
+        else: 
+            self._diagnostics_labels["connected_since"].setText("-")
+
+        self._diagnostics_labels["reconnects"].setText(str(self._reconnect_count))
+        self._diagnostics_labels["sequence_gaps"].setText(str(self._sequence_gap_count))
+
 
     def _on_tab_clicked(self, button) -> None:
         self._selected_symbol = button.text()
@@ -420,12 +448,51 @@ class OrderBookModule(ArgusModule):
 
         outer_layout.addWidget(feed_log_frame, 1)
 
+        diagnostics_frame = QFrame()
+        diagnostics_frame.setFrameShape(QFrame.Box)
+        diagnostics_layout = QVBoxLayout(diagnostics_frame)
+
+        diagnostics_heading = QLabel("CONNECTION DIAGNOSTICS")
+        diagnostics_heading.setAlignment(Qt.AlignCenter)
+        diagnostics_heading.setStyleSheet("color: #888888; font-size: 10px; padding: 4px;")
+        diagnostics_layout.addWidget(diagnostics_heading)
+
+        diagnostics_grid = QGridLayout()
+
+        self._diagnostics_defs = [
+            ("status", "Status"),
+            ("connected_since", "Connected"),
+            ("reconnects", "Reconnects"),
+            ("sequence_gaps", "Sequence Gaps"),
+        ]
+
+        self._diagnostics_labels: dict[str, QLabel] = {}
+        for col, (key, label_text) in enumerate(self._diagnostics_defs):
+            label = QLabel(label_text)
+            label.setAlignment(Qt.AlignCenter)
+            label.setStyleSheet("color: #888888; font-size: 10px;")
+            diagnostics_grid.addWidget(label, 0, col)
+
+            value = QLabel("-")
+            value.setAlignment(Qt.AlignCenter)
+            value.setStyleSheet("font-size: 14px; font-weight: 600;")
+            diagnostics_grid.addWidget(value, 1, col)
+            self._diagnostics_labels[key] = value
+
+        diagnostics_layout.addLayout(diagnostics_grid)
+        outer_layout.addWidget(diagnostics_frame)
+
         self._tab_group.buttonClicked.connect(self._on_tab_clicked)
 
         self._thread = LOBFeedThread()
         self._thread.data_updated.connect(self._on_data)
         self._thread.tick_received.connect(self._on_tick)
+        self._thread.connection_event.connect(self._on_connection_event)
         self._thread.start()
+
+        self._diagnostics_timer = QTimer(widget)
+        self._diagnostics_timer.timeout.connect(self._refresh_diagnostics)
+        self._diagnostics_timer.start(1000)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
