@@ -1,4 +1,5 @@
 from collections import deque
+from datetime import datetime
 import time
 import pyqtgraph as pg
 from PySide6.QtCore import Qt,QPointF, QRectF, QTimer
@@ -6,7 +7,7 @@ from PySide6.QtGui import QPainter, QPicture, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QButtonGroup, QFrame, QGridLayout,
-    QListWidget, QListWidgetItem, QScrollArea
+    QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea
 )
 
 from core.base_module import ArgusModule 
@@ -24,6 +25,17 @@ INTERVALS = [
     ("4h", 14400),
     ("1D", 86400),
 ]
+
+FEED_LOG_COLUMNS = ["Side", "Price", "Size", "Type", "Seq", "Exch Time", "Local Time"]
+FEED_LOG_ROW_LIMIT = 20
+
+
+class NoWheelTableWidget(QTableWidget):
+    """A QTableWidget that never captures the mouse wheel, so scrolling the
+    page doesn't get trapped inside this widget's own (disabled) scrollbar."""
+
+    def wheelEvent(self, event) -> None:
+        event.ignore()
 
 
 class CandlestickItem(pg.GraphicsObject):
@@ -228,9 +240,7 @@ class OrderBookModule(ArgusModule):
         self._candle_item.invalidate()
         self._refresh_display()
 
-        self._price_plot.setXRange(0, CANDLE_HISTORY_LEN, padding = 0.02)
-        self._price_plot.enableAutoRange(axis="y")
-        self._price_plot.getViewBox().updateAutoRange()
+        self._price_plot.setXRange(0, CANDLE_HISTORY_LEN, padding=0.02)
 
         self._set_controls_enabled(False)
         self._kline_worker = KlineFetchWorker(self._selected_symbol, self._selected_interval_seconds)
@@ -248,6 +258,7 @@ class OrderBookModule(ArgusModule):
         self._active_current_candle = [current["open"], current["high"], current["low"], current["close"]]
         self._active_bucket = current["bucket"]
         self._refresh_display()
+        self._recenter_price_chart()
 
     def _on_klines_failed(self, message: str) -> None:
         self._set_controls_enabled(True)
@@ -255,34 +266,51 @@ class OrderBookModule(ArgusModule):
 
     def _on_tab_clicked(self, button) -> None:
         self._selected_symbol = button.text()
-        self._rebuild_feed_log_widget()
+        self._refresh_feed_log_widget()
         self._fetch_candles()
 
     def _on_interval_clicked(self, button) -> None:
         self._selected_interval_seconds = button.property("interval_seconds")
         self._fetch_candles()
 
-    def _format_feed_row(self, row: dict) -> str:
-        return f"{row['side'].upper():>3}  {row['price']:>12,.2f}  {row['size']:>10.4f}"
+    def _format_timestamp(self, ms: int) -> str:
+        return datetime.fromtimestamp(ms / 1000).strftime("%H:%M:%S.%f")[:-3]
+
+    def _feed_row_columns(self, row: dict) -> list[str]:
+        return [
+            row["side"].upper(),
+            f"{row['price']:,.2f}",
+            f"{row['size']:.4f}",
+            row["update_type"],
+            str(row["sequence"]),
+            self._format_timestamp(row["timestamp_exchange"]),
+            self._format_timestamp(row["timestamp_local"]),
+        ]
+
+    def _count_recent_orders(self, symbol: str) -> int:
+        cutoff_ms = time.time() * 1000 - 60_000
+        return sum(1 for row in self._feed_log[symbol] if row["timestamp_exchange"] >= cutoff_ms)
 
     def _on_tick(self, row: dict) -> None:
-        symbol = row["symbol"]
-        self._feed_log[symbol].append(row)
-        if symbol != self._selected_symbol:
-            return
+        # Buffered only - the table renders periodically from this buffer
+        # (see _refresh_feed_log_widget / _feed_log_timer), not per-tick.
+        self._feed_log[row["symbol"]].append(row)
 
-        item = QListWidgetItem(self._format_feed_row(row))
-        item.setForeground(QColor("#2ECC71") if row["side"] == "bid" else QColor("#E74C3C"))
-        self._feed_log_widget.insertItem(0, item)
-        while self._feed_log_widget.count() > 40:
-            self._feed_log_widget.takeItem(self._feed_log_widget.count() - 1)
+    def _refresh_feed_log_widget(self) -> None:
+        symbol = self._selected_symbol
+        rows = list(reversed(self._feed_log[symbol]))[:FEED_LOG_ROW_LIMIT]
 
-    def _rebuild_feed_log_widget(self) -> None:
-        self._feed_log_widget.clear()
-        for row in reversed(self._feed_log[self._selected_symbol]):
-            item = QListWidgetItem(self._format_feed_row(row))
-            item.setForeground(QColor("#2ECC71") if row["side"] == "bid" else QColor("#E74C3C"))
-            self._feed_log_widget.addItem(item)
+        self._feed_log_widget.setRowCount(len(rows))
+        for row_idx, row in enumerate(rows):
+            color = QColor("#2ECC71") if row["side"] == "bid" else QColor("#E74C3C")
+            for col_idx, text in enumerate(self._feed_row_columns(row)):
+                item = QTableWidgetItem(text)
+                item.setForeground(color)
+                item.setTextAlignment(Qt.AlignCenter)
+                self._feed_log_widget.setItem(row_idx, col_idx, item)
+
+        count = self._count_recent_orders(symbol)
+        self._feed_log_heading.setText(f"FEED LOG  ·  {count} in last 60s")
 
 
     def _refresh_ladder(self) -> None:
@@ -372,6 +400,31 @@ class OrderBookModule(ArgusModule):
         max_y_range = max(span * 5, min_y_range * 10)
 
         self._price_plot.setLimits(minYRange=min_y_range, maxYRange=max_y_range)
+
+    def _recenter_price_chart(self) -> None:
+        # Fits the Y-axis tightly to the currently-loaded candles' actual
+        # high/low span (small fixed padding) instead of relying on
+        # pyqtgraph's autoRange - which was fitting to the interval's full
+        # history including padding, and could look too loose. Since this
+        # reads self._active_candles directly, the fit naturally reflects
+        # whichever interval is currently selected, without a network fetch.
+        self._price_plot.setXRange(0, CANDLE_HISTORY_LEN, padding=0.02)
+
+        candles = self._active_candles
+        current = self._active_current_candle
+        candle_data = [(i, o, h, l, c) for i, (o, h, l, c) in enumerate(candles)]
+        if current is not None:
+            candle_data.append((len(candles), *current))
+        if not candle_data:
+            return
+
+        highs = [c[2] for c in candle_data]
+        lows = [c[3] for c in candle_data]
+        data_high = max(highs)
+        data_low = min(lows)
+        span = data_high - data_low
+        pad = max(span * 0.05, data_high * 0.0005)
+        self._price_plot.setYRange(data_low - pad, data_high + pad, padding=0)
 
     def _refresh_display(self) -> None:
         data = self._latest.get(self._selected_symbol, {})
@@ -484,6 +537,13 @@ class OrderBookModule(ArgusModule):
         chart_frame.setFrameShape(QFrame.Box)
         chart_layout = QVBoxLayout(chart_frame)
 
+        chart_controls_row = QHBoxLayout()
+        chart_controls_row.addStretch()
+        self._recentre_btn = QPushButton("Recentre")
+        self._recentre_btn.clicked.connect(self._recenter_price_chart)
+        chart_controls_row.addWidget(self._recentre_btn)
+        chart_layout.addLayout(chart_controls_row)
+
         self._price_plot = pg.PlotWidget()
         self._price_plot.setBackground("#141414")
         self._price_plot.showGrid(x=False, y=True, alpha=0.15)
@@ -495,7 +555,7 @@ class OrderBookModule(ArgusModule):
             xMin=0, xMax=CANDLE_HISTORY_LEN,
             minXRange=10, maxXRange=CANDLE_HISTORY_LEN,
         )
-        self._price_plot.enableAutoRange(axis="y")
+        self._price_plot.getViewBox().disableAutoRange()
         self._price_plot.getViewBox().setDefaultPadding(0.05)
         chart_layout.addWidget(self._price_plot)
 
@@ -560,12 +620,20 @@ class OrderBookModule(ArgusModule):
         feed_log_frame.setFrameShape(QFrame.Box)
         feed_log_layout = QVBoxLayout(feed_log_frame)
 
-        feed_log_heading = QLabel("FEED LOG")
-        feed_log_heading.setAlignment(Qt.AlignCenter)
-        feed_log_heading.setStyleSheet("color: #888888; font-size: 10px; padding: 4px;")
-        feed_log_layout.addWidget(feed_log_heading)
+        self._feed_log_heading = QLabel("FEED LOG")
+        self._feed_log_heading.setAlignment(Qt.AlignCenter)
+        self._feed_log_heading.setStyleSheet("color: #888888; font-size: 10px; padding: 4px;")
+        feed_log_layout.addWidget(self._feed_log_heading)
 
-        self._feed_log_widget = QListWidget()
+        self._feed_log_widget = NoWheelTableWidget()
+        self._feed_log_widget.setColumnCount(len(FEED_LOG_COLUMNS))
+        self._feed_log_widget.setHorizontalHeaderLabels(FEED_LOG_COLUMNS)
+        self._feed_log_widget.verticalHeader().setVisible(False)
+        self._feed_log_widget.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._feed_log_widget.setSelectionMode(QTableWidget.NoSelection)
+        self._feed_log_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._feed_log_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._feed_log_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self._feed_log_widget.setStyleSheet("font-family: monospace; font-size: 11px;")
         feed_log_layout.addWidget(self._feed_log_widget)
 
@@ -578,8 +646,6 @@ class OrderBookModule(ArgusModule):
         diagnostics_heading.setStyleSheet("color: #888888; font-size: 10px; padding: 4px;")
         diagnostics_layout.addWidget(diagnostics_heading)
 
-        diagnostics_grid = QGridLayout()
-
         self._diagnostics_defs = [
             ("status", "Status"),
             ("connected_since", "Connected"),
@@ -588,19 +654,24 @@ class OrderBookModule(ArgusModule):
         ]
 
         self._diagnostics_labels: dict[str, QLabel] = {}
-        for col, (key, label_text) in enumerate(self._diagnostics_defs):
+        for key, label_text in self._diagnostics_defs:
+            row = QHBoxLayout()
+
             label = QLabel(label_text)
-            label.setAlignment(Qt.AlignCenter)
+            label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             label.setStyleSheet("color: #888888; font-size: 10px;")
-            diagnostics_grid.addWidget(label, 0, col)
+            row.addWidget(label)
+
+            row.addStretch()
 
             value = QLabel("-")
-            value.setAlignment(Qt.AlignCenter)
+            value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             value.setStyleSheet("font-size: 14px; font-weight: 600;")
-            diagnostics_grid.addWidget(value, 1, col)
+            row.addWidget(value)
             self._diagnostics_labels[key] = value
 
-        diagnostics_layout.addLayout(diagnostics_grid)
+            diagnostics_layout.addLayout(row)
+
         diagnostics_layout.addStretch()
 
         bottom_row = QHBoxLayout()
@@ -616,6 +687,7 @@ class OrderBookModule(ArgusModule):
         self._thread.connection_event.connect(self._on_connection_event)
         self._thread.start()
         self._fetch_candles()
+        self._refresh_feed_log_widget()
 
         self._diagnostics_timer = QTimer(widget)
         self._diagnostics_timer.timeout.connect(self._refresh_diagnostics)
@@ -623,7 +695,11 @@ class OrderBookModule(ArgusModule):
 
         self._depth_refit_timer = QTimer(widget)
         self._depth_refit_timer.timeout.connect(self._periodic_depth_refit)
-        self._depth_refit_timer.start(7000)
+        self._depth_refit_timer.start(14000)
+
+        self._feed_log_timer = QTimer(widget)
+        self._feed_log_timer.timeout.connect(self._refresh_feed_log_widget)
+        self._feed_log_timer.start(3000)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
