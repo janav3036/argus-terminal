@@ -184,7 +184,17 @@ class OrderBookModule(ArgusModule):
         
 
     def _refresh_diagnostics(self) -> None:
-        self._diagnostics_labels["status"].setText(self._connection_status.capitalize())
+        status_colors = {
+            "connected": "#2ECC71",
+            "reconnecting": "#e0a030",
+            "disconnected": "#E74C3C",
+        }
+        status_label = self._diagnostics_labels["status"]
+        status_label.setText(self._connection_status.capitalize())
+        status_label.setStyleSheet(
+            "font-size: 14px; font-weight: 600; color: "
+            + status_colors[self._connection_status]
+        )
 
         if self._connected_since is not None:
             elapsed = int(time.time() - self._connected_since)
@@ -328,6 +338,15 @@ class OrderBookModule(ArgusModule):
         if self._depth_needs_fit and (bid_points or ask_points):
             self._depth_plot.getViewBox().autoRange()
             self._depth_needs_fit = False
+
+    def _periodic_depth_refit(self) -> None:
+        # The depth chart deliberately doesn't refit on every tick (that was
+        # jittery) - but fitting only once, right after load, means the view
+        # goes stale as price drifts, leaving growing dead margins on the
+        # sides. Refit occasionally instead, as a middle ground.
+        data = self._latest.get(self._selected_symbol, {})
+        if data.get("top_bids") or data.get("top_asks"):
+            self._depth_plot.getViewBox().autoRange()
 
     def _update_price_zoom_limits(self, candle_data: list[tuple[float, float, float, float, float]]) -> None:
         if not candle_data:
@@ -577,7 +596,8 @@ class OrderBookModule(ArgusModule):
             self._diagnostics_labels[key] = value
 
         diagnostics_layout.addLayout(diagnostics_grid)
-        
+        diagnostics_layout.addStretch()
+
         bottom_row = QHBoxLayout()
         bottom_row.addWidget(feed_log_frame, 2)
         bottom_row.addWidget(diagnostics_frame, 1)
@@ -595,6 +615,10 @@ class OrderBookModule(ArgusModule):
         self._diagnostics_timer = QTimer(widget)
         self._diagnostics_timer.timeout.connect(self._refresh_diagnostics)
         self._diagnostics_timer.start(1000)
+
+        self._depth_refit_timer = QTimer(widget)
+        self._depth_refit_timer.timeout.connect(self._periodic_depth_refit)
+        self._depth_refit_timer.start(3000)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
