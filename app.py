@@ -1,6 +1,7 @@
 import sys
+from pathlib import Path
 from PySide6.QtCore import Qt, QCoreApplication
-from PySide6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QStackedWidget, QWidget, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QStackedWidget, QWidget, QVBoxLayout, QPushButton
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from core.base_module import ArgusModule
@@ -42,9 +43,14 @@ class ArgusMainWindow(QMainWindow):
 
         self._top_bar = TopBar()
 
+        self._sidebar_toggle_btn = QPushButton("☰")
+        self._sidebar_toggle_btn.setFixedWidth(28)
+        self._sidebar_toggle_btn.clicked.connect(self._toggle_sidebar)
+
         row = QWidget()
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(self._sidebar_toggle_btn)
         row_layout.addWidget(self._sidebar)
         row_layout.addWidget(self._content)
 
@@ -65,6 +71,9 @@ class ArgusMainWindow(QMainWindow):
         )
         self._yfinance_thread.start()
 
+
+    def _toggle_sidebar(self) -> None:
+        self._sidebar.setVisible(not self._sidebar.isVisible())
 
     def _show_module(self, module: ArgusModule) -> None:
         if module not in self._module_widgets:
@@ -89,6 +98,10 @@ class ArgusMainWindow(QMainWindow):
 def run() -> None:
     QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
+
+    stylesheet_path = Path(__file__).parent / "assets" / "styles" / "argus_dark.qss"
+    app.setStyleSheet(stylesheet_path.read_text())
+
     window = ArgusMainWindow()
     window.show()
     sys.exit(app.exec())

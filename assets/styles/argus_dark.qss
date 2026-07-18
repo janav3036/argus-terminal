@@ -1,0 +1,128 @@
+/* Argus dark theme. Palette matches the Order Book module mockup so the
+   whole app reads as one consistent design language, not per-module
+   one-offs. */
+
+* {
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 13px;
+}
+
+QMainWindow, QWidget {
+    background-color: #0D0D0D;
+    color: #E8E8E8;
+}
+
+QFrame {
+    background-color: #141414;
+    border: 1px solid #2A2A2A;
+    border-radius: 6px;
+}
+
+/* Plain (non-panel) containers shouldn't get the panel treatment - only
+   frames that actually draw a box/panel shape should look like a card. */
+QFrame[frameShape="0"] {
+    background-color: transparent;
+    border: none;
+    border-radius: 0px;
+}
+
+QLabel {
+    background-color: transparent;
+    border: none;
+}
+
+QPushButton {
+    background-color: #1A1A1A;
+    color: #E8E8E8;
+    border: 1px solid #2A2A2A;
+    border-radius: 4px;
+    padding: 5px 12px;
+}
+
+QPushButton:hover {
+    border-color: #2B5EA7;
+}
+
+QPushButton:checked {
+    background-color: #1E3F70;
+    border-color: #2B5EA7;
+    color: #E8E8E8;
+}
+
+QPushButton:disabled {
+    color: #5f5f5f;
+}
+
+QListWidget, QTableWidget {
+    background-color: #141414;
+    color: #E8E8E8;
+    border: 1px solid #2A2A2A;
+    border-radius: 6px;
+    gridline-color: #2A2A2A;
+}
+
+QListWidget::item:selected, QTableWidget::item:selected {
+    background-color: #1E3F70;
+}
+
+QHeaderView::section {
+    background-color: #1A1A1A;
+    color: #888888;
+    border: none;
+    border-bottom: 1px solid #2A2A2A;
+    padding: 4px;
+}
+
+QTabWidget::pane {
+    background-color: #141414;
+    border: 1px solid #2A2A2A;
+    border-radius: 6px;
+}
+
+QTabBar::tab {
+    background-color: #1A1A1A;
+    color: #888888;
+    border: 1px solid #2A2A2A;
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    padding: 6px 14px;
+}
+
+QTabBar::tab:selected {
+    background-color: #1E3F70;
+    color: #E8E8E8;
+}
+
+QComboBox, QCalendarWidget {
+    background-color: #1A1A1A;
+    color: #E8E8E8;
+    border: 1px solid #2A2A2A;
+    border-radius: 4px;
+}
+
+QStatusBar {
+    background-color: #141414;
+    border-top: 1px solid #2A2A2A;
+}
+
+QScrollBar:vertical, QScrollBar:horizontal {
+    background: transparent;
+    border: none;
+    width: 8px;
+    height: 8px;
+}
+
+QScrollBar::handle {
+    background: #2A2A2A;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:hover {
+    background: #1E3F70;
+}
+
+QScrollBar::add-line, QScrollBar::sub-line {
+    width: 0px;
+    height: 0px;
+}
