@@ -19,19 +19,26 @@ class ArgusMainWindow(QMainWindow):
         self._modules = MODULES
         self._module_widgets: dict[ArgusModule, QWidget] = {}
 
-        # QWebEngineView's Chromium subprocess/GPU-surface bootstrap only
-        # happens once per process, and visibly flashes the window when it
-        # happens on first use. Force that cost to pay off now, at launch,
-        # instead of the first time a module (e.g. Volatility Lab) actually
-        # shows one. Never shown, never added to a layout — kept alive only
-        # so it isn't garbage collected.
-        self._webengine_warmup = QWebEngineView()
-
         self._sidebar = Sidebar(self._modules)
         self._sidebar.module_selected.connect(self._show_module)
         self._sidebar.setFixedWidth(240)
 
         self._content = QStackedWidget()
+
+        # A QWebEngineView added to the window's widget tree for the first
+        # time *after* the window has already been shown forces Qt/Cocoa to
+        # convert the native window's backing store to support OpenGL
+        # compositing - on macOS this is visible as the whole window closing
+        # and reopening. Adding one here, before window.show() is ever
+        # called (this constructor runs before that), means that conversion
+        # happens once during the window's initial creation instead of
+        # later, mid-session, the first time a module actually shows one.
+        # It has to be a genuine page of self._content (part of the window's
+        # tree) to matter — an orphaned, unparented QWebEngineView doesn't
+        # affect the main window's surface at all.
+        self._webengine_warmup = QWebEngineView()
+        self._webengine_warmup.setFixedSize(0, 0)
+        self._content.addWidget(self._webengine_warmup)
 
         self._top_bar = TopBar()
 
