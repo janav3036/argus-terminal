@@ -78,34 +78,18 @@ class VolatilityLabModule(ArgusModule):
         self._calendar.setMaximumDate(QDate(2026, 4, 9))
         self._calendar.setSelectedDate(QDate(2026, 4, 9))
         self._calendar.setGridVisible(True)
-        self._calendar.setStyleSheet("""
-            QCalendarWidget {
-                background-color: #1A1A1A;
-                color: #E8E8E8;
-            }
-        """)
         date_top_row.addWidget(self._calendar, 2)
 
         time_col = QVBoxLayout()
         date_top_row.addLayout(time_col, 1)
 
         time_row = QHBoxLayout()
-        combo_style = """
-            QComboBox {
-                background-color: #1A1A1A;
-                color: #E8E8E8;
-                border: 1px solid #444;
-                border-radius: 4px;
-                padding: 4px 8px;
-            }
-        """
 
         self._hour_picker = QComboBox()
         self._hour_picker.setEditable(False)
         for hour in range(24):
             self._hour_picker.addItem(f"{hour:02d}")
         self._hour_picker.setCurrentText("13")
-        self._hour_picker.setStyleSheet(combo_style)
         time_row.addWidget(self._hour_picker)
 
         self._minute_picker = QComboBox()
@@ -113,7 +97,6 @@ class VolatilityLabModule(ArgusModule):
         for minute in (0, 15, 30, 45):
             self._minute_picker.addItem(f"{minute:02d}")
         self._minute_picker.setCurrentText("00")
-        self._minute_picker.setStyleSheet(combo_style)
         time_row.addWidget(self._minute_picker)
 
         time_col.addLayout(time_row)
