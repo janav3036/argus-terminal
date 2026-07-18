@@ -377,7 +377,15 @@ class OrderBookModule(ArgusModule):
         # past the default view, but never zoomed out beyond it.
         max_y_range = span + 2 * pad
 
-        self._price_plot.setLimits(minYRange=min_y_range, maxYRange=max_y_range)
+        self._price_plot.setLimits(
+            minYRange=min_y_range, maxYRange=max_y_range,
+            # yMin/yMax bound where the view can be *panned* to - without
+            # these, minYRange/maxYRange only cap how large the visible
+            # range can grow, but panning was still unbounded, letting the
+            # view drift arbitrarily far from the actual data (X already
+            # had this via xMin/xMax; Y never did).
+            yMin=data_low - pad, yMax=data_high + pad,
+        )
 
     def _recenter_price_chart(self) -> None:
         # Fits the Y-axis tightly to the currently-loaded candles' actual
