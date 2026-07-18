@@ -523,11 +523,13 @@ class OrderBookModule(ArgusModule):
         self._depth_plot.getViewBox().disableAutoRange()
         depth_layout.addWidget(self._depth_plot)
 
-        ladder_frame.setMaximumWidth(340)
+        ladder_frame.setFixedWidth(340)
+        depth_frame.setFixedWidth(700)
 
         depth_row = QHBoxLayout()
         depth_row.addWidget(ladder_frame)
-        depth_row.addWidget(depth_frame, 1)
+        depth_row.addWidget(depth_frame)
+        depth_row.addStretch()
         outer_layout.addLayout(depth_row)
 
         feed_log_frame = QFrame()
