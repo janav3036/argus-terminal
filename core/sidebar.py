@@ -11,7 +11,7 @@ class Sidebar(QListWidget):
         super().__init__(parent)
         self._modules = modules
         self._populate()
-        self.currentRowChanged.connect(self._on_row_changed)
+        self.itemClicked.connect(self._on_item_clicked)
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._refresh_previews)
@@ -24,9 +24,8 @@ class Sidebar(QListWidget):
             item = QListWidgetItem(f"{label}\n{preview}")
             self.addItem(item)
 
-    def _on_row_changed(self, row: int) -> None:
-        if row<0:
-            return
+    def _on_item_clicked(self, item: QListWidgetItem) -> None:
+        row = self.row(item)
         self.module_selected.emit(self._modules[row])
         
     def _refresh_previews(self) -> None:
