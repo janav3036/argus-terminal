@@ -27,15 +27,7 @@ INTERVALS = [
 ]
 
 FEED_LOG_COLUMNS = ["Side", "Price", "Size", "Type", "Seq", "Exch Time", "Local Time"]
-FEED_LOG_ROW_LIMIT = 20
-
-
-class NoWheelTableWidget(QTableWidget):
-    """A QTableWidget that never captures the mouse wheel, so scrolling the
-    page doesn't get trapped inside this widget's own (disabled) scrollbar."""
-
-    def wheelEvent(self, event) -> None:
-        event.ignore()
+FEED_LOG_ROW_LIMIT = 100
 
 
 class CandlestickItem(pg.GraphicsObject):
@@ -119,7 +111,6 @@ class OrderBookModule(ArgusModule):
         self._feed_log: dict[str, deque[dict]] = {
             symbol: deque(maxlen=200) for symbol in INSTRUMENTS
         }
-        self._depth_needs_fit = True
         self._connection_status = "disconnected"
         self._connected_since: float | None = None
         self._reconnect_count = 0
@@ -236,7 +227,6 @@ class OrderBookModule(ArgusModule):
         self._active_candles.clear()
         self._active_current_candle = None
         self._active_bucket = None
-        self._depth_needs_fit = True
         self._candle_item.invalidate()
         self._refresh_display()
 
@@ -287,10 +277,6 @@ class OrderBookModule(ArgusModule):
             self._format_timestamp(row["timestamp_local"]),
         ]
 
-    def _count_recent_orders(self, symbol: str) -> int:
-        cutoff_ms = time.time() * 1000 - 60_000
-        return sum(1 for row in self._feed_log[symbol] if row["timestamp_exchange"] >= cutoff_ms)
-
     def _on_tick(self, row: dict) -> None:
         # Buffered only - the table renders periodically from this buffer
         # (see _refresh_feed_log_widget / _feed_log_timer), not per-tick.
@@ -308,9 +294,6 @@ class OrderBookModule(ArgusModule):
                 item.setForeground(color)
                 item.setTextAlignment(Qt.AlignCenter)
                 self._feed_log_widget.setItem(row_idx, col_idx, item)
-
-        count = self._count_recent_orders(symbol)
-        self._feed_log_heading.setText(f"FEED LOG  ·  {count} in last 60s")
 
 
     def _refresh_ladder(self) -> None:
@@ -372,17 +355,7 @@ class OrderBookModule(ArgusModule):
         else:
             self._ask_depth_curve.setData([], [])
 
-        if self._depth_needs_fit and (bid_points or ask_points):
-            self._depth_plot.getViewBox().autoRange()
-            self._depth_needs_fit = False
-
-    def _periodic_depth_refit(self) -> None:
-        # The depth chart deliberately doesn't refit on every tick (that was
-        # jittery) - but fitting only once, right after load, means the view
-        # goes stale as price drifts, leaving growing dead margins on the
-        # sides. Refit occasionally instead, as a middle ground.
-        data = self._latest.get(self._selected_symbol, {})
-        if data.get("top_bids") or data.get("top_asks"):
+        if bid_points or ask_points:
             self._depth_plot.getViewBox().autoRange()
 
     def _update_price_zoom_limits(self, candle_data: list[tuple[float, float, float, float, float]]) -> None:
@@ -395,9 +368,13 @@ class OrderBookModule(ArgusModule):
         data_low = min(lows)
         span = data_high - data_low
         mid_price = (data_high + data_low) / 2
+        pad = max(span * 0.05, data_high * 0.0005)
 
-        min_y_range = max(mid_price * 0.0005, span * 0.05, 0.0001)
-        max_y_range = max(span * 5, min_y_range * 10)
+        min_y_range = max(mid_price * 0.0005, span * 0.02, 0.0001)
+        # Capped at exactly the tight recentred span (matches
+        # _recenter_price_chart's own fit) so the chart can be zoomed in
+        # past the default view, but never zoomed out beyond it.
+        max_y_range = span + 2 * pad
 
         self._price_plot.setLimits(minYRange=min_y_range, maxYRange=max_y_range)
 
@@ -625,7 +602,7 @@ class OrderBookModule(ArgusModule):
         self._feed_log_heading.setStyleSheet("color: #888888; font-size: 10px; padding: 4px;")
         feed_log_layout.addWidget(self._feed_log_heading)
 
-        self._feed_log_widget = NoWheelTableWidget()
+        self._feed_log_widget = QTableWidget()
         self._feed_log_widget.setColumnCount(len(FEED_LOG_COLUMNS))
         self._feed_log_widget.setHorizontalHeaderLabels(FEED_LOG_COLUMNS)
         self._feed_log_widget.verticalHeader().setVisible(False)
@@ -670,9 +647,7 @@ class OrderBookModule(ArgusModule):
             row.addWidget(value)
             self._diagnostics_labels[key] = value
 
-            diagnostics_layout.addLayout(row)
-
-        diagnostics_layout.addStretch()
+            diagnostics_layout.addLayout(row, 1)
 
         bottom_row = QHBoxLayout()
         bottom_row.addWidget(feed_log_frame, 4)
@@ -692,10 +667,6 @@ class OrderBookModule(ArgusModule):
         self._diagnostics_timer = QTimer(widget)
         self._diagnostics_timer.timeout.connect(self._refresh_diagnostics)
         self._diagnostics_timer.start(1000)
-
-        self._depth_refit_timer = QTimer(widget)
-        self._depth_refit_timer.timeout.connect(self._periodic_depth_refit)
-        self._depth_refit_timer.start(14000)
 
         self._feed_log_timer = QTimer(widget)
         self._feed_log_timer.timeout.connect(self._refresh_feed_log_widget)
