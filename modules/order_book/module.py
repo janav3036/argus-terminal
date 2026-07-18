@@ -25,6 +25,7 @@ INTERVALS = [
     ("4h", 14400),
     ("1D", 86400),
 ]
+PRICE_CHART_Y_PADDING = 1.0  # flat unit padding above/below the visible high/low
 
 FEED_LOG_COLUMNS = ["Side", "Price", "Size", "Type", "Seq", "Exch Time", "Local Time"]
 FEED_LOG_ROW_LIMIT = 100
@@ -368,7 +369,7 @@ class OrderBookModule(ArgusModule):
         data_low = min(lows)
         span = data_high - data_low
         mid_price = (data_high + data_low) / 2
-        pad = max(span * 0.05, data_high * 0.0005)
+        pad = PRICE_CHART_Y_PADDING
 
         min_y_range = max(mid_price * 0.0005, span * 0.02, 0.0001)
         # Capped at exactly the tight recentred span (matches
@@ -399,8 +400,7 @@ class OrderBookModule(ArgusModule):
         lows = [c[3] for c in candle_data]
         data_high = max(highs)
         data_low = min(lows)
-        span = data_high - data_low
-        pad = max(span * 0.05, data_high * 0.0005)
+        pad = PRICE_CHART_Y_PADDING
         self._price_plot.setYRange(data_low - pad, data_high + pad, padding=0)
 
     def _refresh_display(self) -> None:
