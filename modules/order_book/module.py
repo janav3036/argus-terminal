@@ -604,7 +604,7 @@ class OrderBookModule(ArgusModule):
         diagnostics_layout.addStretch()
 
         bottom_row = QHBoxLayout()
-        bottom_row.addWidget(feed_log_frame, 2)
+        bottom_row.addWidget(feed_log_frame, 4)
         bottom_row.addWidget(diagnostics_frame, 1)
         outer_layout.addLayout(bottom_row)
         self._tab_group.buttonClicked.connect(self._on_tab_clicked)
