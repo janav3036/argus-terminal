@@ -12,10 +12,19 @@ from PySide6.QtWidgets import (
 from core.base_module import ArgusModule 
 from modules.order_book.bybit_bridge import INSTRUMENTS
 from modules.order_book.lob_feed_thread import LOBFeedThread
+from modules.order_book.bybit_kline import KlineFetchWorker
 
 PRICE_HISTORY_LEN = 300
-CANDLE_INTERVAL_SECONDS = 1
 CANDLE_HISTORY_LEN = 300
+INTERVALS = [
+    ("1m", 60),
+    ("5m", 300),
+    ("15m", 900),
+    ("1h", 3600),
+    ("4h", 14400),
+    ("1D", 86400),
+]
+
 
 class CandlestickItem(pg.GraphicsObject):
     """Renders a list of (x, ohlc) tuples"""
@@ -58,11 +67,11 @@ class OrderBookModule(ArgusModule):
         self._price_history: dict[str, deque[float]] = {
             symbol: deque(maxlen=PRICE_HISTORY_LEN) for symbol in INSTRUMENTS
         }
-        self._candles: dict[str, deque[tuple[float, float, float, float]]] = {
-            symbol: deque(maxlen=CANDLE_HISTORY_LEN) for symbol in INSTRUMENTS
-        }
-        self._current_candle: dict[str, list[float]] = {}
-        self._current_bucket: dict[str, int] = {}
+        self._selected_interval_seconds = INTERVALS[0][1]
+        self._active_candles: deque[tuple[float, float, float, float]] = deque(maxlen=CANDLE_HISTORY_LEN)
+        self._active_current_candle: list[float] | None = None
+        self._active_bucket: int | None = None
+        self._kline_worker: KlineFetchWorker | None = None
         self._feed_log: dict[str, deque[dict]] = {
             symbol: deque(maxlen=200) for symbol in INSTRUMENTS
         }
@@ -88,24 +97,21 @@ class OrderBookModule(ArgusModule):
         return self._thread.status_changed if self._thread is not None else None
 
 
-    def _update_candle(self, symbol: str, price: float) -> None:
-        bucket = int(time.time() // CANDLE_INTERVAL_SECONDS)
-        current_bucket = self._current_bucket.get(symbol)
-
-        if current_bucket is None:
-            self._current_bucket[symbol] = bucket
-            self._current_candle[symbol] = [price, price, price, price]
+    def _update_active_candle(self, price: float) -> None:
+        if self._active_bucket is None:
             return
+        bucket = int(time.time() // self._selected_interval_seconds)
 
-        if bucket != current_bucket:
-            self._candles[symbol].append(tuple(self._current_candle[symbol]))
-            self._current_bucket[symbol] = bucket
-            self._current_candle[symbol] = [price, price, price, price]
+        if bucket!=self._active_bucket:
+            self._active_candles.append(tuple(self._active_current_candle))
+            self._active_bucket = bucket
+            self._active_current_candle = [price, price, price, price]
         else:
-            candle = self._current_candle[symbol]
+            candle = self._active_current_candle
             candle[1] = max(candle[1], price)
             candle[2] = min(candle[2], price)
             candle[3] = price
+
     def _make_ladder_row(self, color: str) -> tuple[QHBoxLayout, QLabel, QLabel]:
         row = QHBoxLayout()
         price_label = QLabel("")
@@ -123,7 +129,8 @@ class OrderBookModule(ArgusModule):
         mid = payload.get("mid_price")
         if mid is not None:
             self._price_history[symbol].append(mid)
-            self._update_candle(symbol, mid)
+            if symbol == self._selected_symbol:
+                self._update_active_candle(mid)
         if symbol == self._selected_symbol:
             self._refresh_display()
 
@@ -154,15 +161,52 @@ class OrderBookModule(ArgusModule):
         self._diagnostics_labels["reconnects"].setText(str(self._reconnect_count))
         self._diagnostics_labels["sequence_gaps"].setText(str(self._sequence_gap_count))
 
+    def _set_controls_enabled(self, enabled: bool) -> None:
+        for btn in self._tab_group.buttons():
+            btn.setEnabled(enabled)
+        for btn in self._interval_group.buttons():
+            btn.setEnabled(enabled)
+
+    def _fetch_candles(self) -> None:
+        self._active_candles.clear()
+        self._active_current_candle = None
+        self._active_bucket = None
+        self._depth_needs_fit = True
+        self._refresh_display()
+
+        self._price_plot.setXRange(0, CANDLE_HISTORY_LEN, padding = 0.02)
+        self._price_plot.enableAutoRange(axis="y")
+        self._price_plot.getViewBox().updateAutoRange()
+
+        self._set_controls_enabled(False)
+        self._kline_worker = KlineFetchWorker(self._selected_symbol, self._selected_interval_seconds)
+        self._kline_worker.finished_fetch.connect(self._on_klines_fetched)
+        self._kline_worker.failed.connect(self._on_klines_failed)
+        self._kline_worker.start()
+
+    def _on_klines_fetched(self, symbol: str, interval_seconds: int, candles: list[dict]) -> None:
+        self._set_controls_enabled(True)
+        if symbol!=self._selected_symbol or interval_seconds!=self._selected_interval_seconds:
+            return
+        
+        *history, current = candles
+        self._active_candles.extend((c["open"], c["high"], c["low"], c["close"]) for c in history)
+        self._active_current_candle = [current["open"], current["high"], current["low"], current["close"]]
+        self._active_bucket = current["bucket"]
+        self._refresh_display()
+
+    def _on_klines_failed(self, message: str) -> None:
+        self._set_controls_enabled(True)
+        print(f"Kline fetch failed: {message}")
 
     def _on_tab_clicked(self, button) -> None:
         self._selected_symbol = button.text()
-        self._depth_needs_fit = True
         self._rebuild_feed_log_widget()
-        self._refresh_display()
-        self._price_plot.setXRange(0, CANDLE_HISTORY_LEN, padding=0.02)
-        self._price_plot.enableAutoRange(axis="y")
-        self._price_plot.getViewBox().updateAutoRange()
+        self._fetch_candles()
+
+    def _on_interval_clicked(self, button) -> None:
+        self._selected_interval_seconds = button.property("interval_seconds")
+        self._fetch_candles()
 
     def _on_tick(self, row: dict) -> None:
         symbol = row["symbol"]
@@ -283,8 +327,8 @@ class OrderBookModule(ArgusModule):
             else:
                 label.setText(f"{value:,.2f}")    
         
-        candles = self._candles[self._selected_symbol]
-        current = self._current_candle.get(self._selected_symbol)
+        candles = self._active_candles
+        current = self._active_current_candle
         candle_data = [(i, o, h, l, c) for i, (o, h, l, c) in enumerate(candles)]
         if current is not None:
             candle_data.append((len(candles), *current))
@@ -331,6 +375,19 @@ class OrderBookModule(ArgusModule):
             tab_row.addWidget(btn)
         tab_row.addStretch()
         outer_layout.addLayout(tab_row)
+
+        interval_row = QHBoxLayout()
+        self._interval_group = QButtonGroup(widget)
+        self._interval_group.setExclusive(True)
+        for label, seconds in INTERVALS:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(seconds == self._selected_interval_seconds)
+            btn.setProperty("interval_seconds", seconds)
+            self._interval_group.addButton(btn)
+            interval_row.addWidget(btn)
+        interval_row.addStretch()
+        outer_layout.addLayout(interval_row)
 
         metrics_frame = QFrame()
         metrics_frame.setFrameShape(QFrame.Box)
@@ -483,12 +540,14 @@ class OrderBookModule(ArgusModule):
         outer_layout.addWidget(diagnostics_frame)
 
         self._tab_group.buttonClicked.connect(self._on_tab_clicked)
+        self._interval_group.buttonClicked.connect(self._on_interval_clicked)
 
         self._thread = LOBFeedThread()
         self._thread.data_updated.connect(self._on_data)
         self._thread.tick_received.connect(self._on_tick)
         self._thread.connection_event.connect(self._on_connection_event)
         self._thread.start()
+        self._fetch_candles()
 
         self._diagnostics_timer = QTimer(widget)
         self._diagnostics_timer.timeout.connect(self._refresh_diagnostics)
