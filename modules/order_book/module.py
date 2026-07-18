@@ -27,35 +27,67 @@ INTERVALS = [
 
 
 class CandlestickItem(pg.GraphicsObject):
-    """Renders a list of (x, ohlc) tuples"""
+    """Renders a list of (x, ohlc) tuples.
+
+    Closed candles are cached in a separate picture from the live-updating
+    current candle, so a tick only repaints one candle instead of redrawing
+    the entire history every time.
+    """
 
     def __init__(self, ):
         super().__init__()
-        self._picture = QPicture()
+        self._history_picture = QPicture()
+        self._current_picture = QPicture()
+        self._history_count = -1
+
+    def invalidate(self) -> None:
+        """Force the next set_data() call to rebuild the history picture
+        from scratch, e.g. after switching symbol/interval."""
+        self._history_count = -1
+
+    def _draw_candle(self, painter: QPainter, x, open_, high, low, close, width=0.6) -> None:
+        color = QColor("#2ECC71") if close >= open_ else QColor("#E74C3C")
+        painter.setPen(pg.mkPen(color))
+        painter.drawLine(QPointF(x, low), QPointF(x, high))
+        painter.setBrush(pg.mkBrush(color))
+        body_top = max(open_, close)
+        body_height = abs(close - open_) or 0.01
+        painter.drawRect(QRectF(x - width / 2, body_top, width, -body_height))
 
     def set_data(self, candles: list[tuple[float, float, float, float, float]]) -> None:
-        self._picture = QPicture()
-        painter = QPainter(self._picture)
-        width = 0.6
+        if not candles:
+            self._history_picture = QPicture()
+            self._current_picture = QPicture()
+            self._history_count = -1
+            self.informViewBoundsChanged()
+            self.update()
+            return
 
-        for x, open_, high, low, close in candles:
-            color = QColor("#2ECC71") if close >= open_ else QColor("#E74C3C")
-            painter.setPen(pg.mkPen(color))
-            painter.drawLine(QPointF(x, low), QPointF(x, high))
-            painter.setBrush(pg.mkBrush(color))
-            body_top = max(open_, close)
-            body_height = abs(close - open_) or 0.01
-            painter.drawRect(QRectF(x - width / 2, body_top, width, -body_height))
+        history, current = candles[:-1], candles[-1]
 
+        if len(history) != self._history_count:
+            self._history_picture = QPicture()
+            painter = QPainter(self._history_picture)
+            for x, open_, high, low, close in history:
+                self._draw_candle(painter, x, open_, high, low, close)
+            painter.end()
+            self._history_count = len(history)
+
+        self._current_picture = QPicture()
+        painter = QPainter(self._current_picture)
+        self._draw_candle(painter, *current)
         painter.end()
+
         self.informViewBoundsChanged()
         self.update()
 
     def paint(self, painter, *args) -> None:
-        painter.drawPicture(0, 0, self._picture)
+        painter.drawPicture(0, 0, self._history_picture)
+        painter.drawPicture(0, 0, self._current_picture)
 
     def boundingRect(self):
-        return QRectF(self._picture.boundingRect())
+        rect = QRectF(self._history_picture.boundingRect())
+        return rect.united(QRectF(self._current_picture.boundingRect()))
 
 class OrderBookModule(ArgusModule):
     """Wraps LOB microstructure lab as an argus module"""
@@ -139,13 +171,16 @@ class OrderBookModule(ArgusModule):
         if kind == "connected":
             self._connection_status = "connected"
             self._connected_since = time.time()
+            self._refresh_diagnostics()
         elif kind == "reconnecting":
             self._connection_status = "reconnecting"
             self._connected_since = None
             self._reconnect_count += 1
+            self._refresh_diagnostics()
         elif kind == "sequence_gap":
             self._sequence_gap_count += 1
-        self._refresh_diagnostics()
+            # not refreshed immediately — sequence_gap fires at high frequency
+            # and the 1s QTimer already keeps this label current
         
 
     def _refresh_diagnostics(self) -> None:
@@ -172,6 +207,7 @@ class OrderBookModule(ArgusModule):
         self._active_current_candle = None
         self._active_bucket = None
         self._depth_needs_fit = True
+        self._candle_item.invalidate()
         self._refresh_display()
 
         self._price_plot.setXRange(0, CANDLE_HISTORY_LEN, padding = 0.02)
@@ -463,7 +499,6 @@ class OrderBookModule(ArgusModule):
             ladder_layout.addLayout(row)
             self._bid_row_labels.append((price_label, size_label))
 
-        outer_layout.addWidget(ladder_frame)
 
         depth_frame = QFrame()
         depth_frame.setFrameShape(QFrame.Box)
@@ -488,7 +523,12 @@ class OrderBookModule(ArgusModule):
         self._depth_plot.getViewBox().disableAutoRange()
         depth_layout.addWidget(self._depth_plot)
 
-        outer_layout.addWidget(depth_frame, 1)
+        ladder_frame.setMaximumWidth(340)
+
+        depth_row = QHBoxLayout()
+        depth_row.addWidget(ladder_frame)
+        depth_row.addWidget(depth_frame, 1)
+        outer_layout.addLayout(depth_row)
 
         feed_log_frame = QFrame()
         feed_log_frame.setFrameShape(QFrame.Box)
@@ -502,8 +542,6 @@ class OrderBookModule(ArgusModule):
         self._feed_log_widget = QListWidget()
         self._feed_log_widget.setStyleSheet("font-family: monospace; font-size: 11px;")
         feed_log_layout.addWidget(self._feed_log_widget)
-
-        outer_layout.addWidget(feed_log_frame, 1)
 
         diagnostics_frame = QFrame()
         diagnostics_frame.setFrameShape(QFrame.Box)
@@ -537,8 +575,11 @@ class OrderBookModule(ArgusModule):
             self._diagnostics_labels[key] = value
 
         diagnostics_layout.addLayout(diagnostics_grid)
-        outer_layout.addWidget(diagnostics_frame)
-
+        
+        bottom_row = QHBoxLayout()
+        bottom_row.addWidget(feed_log_frame, 2)
+        bottom_row.addWidget(diagnostics_frame, 1)
+        outer_layout.addLayout(bottom_row)
         self._tab_group.buttonClicked.connect(self._on_tab_clicked)
         self._interval_group.buttonClicked.connect(self._on_interval_clicked)
 
