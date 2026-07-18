@@ -1,6 +1,7 @@
 import sys
 from PySide6.QtCore import Qt, QCoreApplication
 from PySide6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QStackedWidget, QWidget, QVBoxLayout
+from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from core.base_module import ArgusModule
 from core.sidebar import Sidebar 
@@ -17,6 +18,14 @@ class ArgusMainWindow(QMainWindow):
 
         self._modules = MODULES
         self._module_widgets: dict[ArgusModule, QWidget] = {}
+
+        # QWebEngineView's Chromium subprocess/GPU-surface bootstrap only
+        # happens once per process, and visibly flashes the window when it
+        # happens on first use. Force that cost to pay off now, at launch,
+        # instead of the first time a module (e.g. Volatility Lab) actually
+        # shows one. Never shown, never added to a layout — kept alive only
+        # so it isn't garbage collected.
+        self._webengine_warmup = QWebEngineView()
 
         self._sidebar = Sidebar(self._modules)
         self._sidebar.module_selected.connect(self._show_module)
