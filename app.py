@@ -1,4 +1,5 @@
 import sys
+from PySide6.QtCore import Qt, QCoreApplication
 from PySide6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QStackedWidget, QWidget, QVBoxLayout
 
 from core.base_module import ArgusModule
@@ -70,6 +71,7 @@ class ArgusMainWindow(QMainWindow):
         super().closeEvent(event)
 
 def run() -> None:
+    QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
     window = ArgusMainWindow()
     window.show()
