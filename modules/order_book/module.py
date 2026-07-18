@@ -184,17 +184,25 @@ class OrderBookModule(ArgusModule):
         
 
     def _refresh_diagnostics(self) -> None:
-        status_colors = {
-            "connected": "#2ECC71",
-            "reconnecting": "#e0a030",
-            "disconnected": "#E74C3C",
+        # (text color, background tint, border) per connection state
+        status_pill_styles = {
+            "connected": ("#2ECC71", "rgba(46, 204, 113, 0.12)", "rgba(46, 204, 113, 0.4)"),
+            "reconnecting": ("#e0a030", "rgba(224, 160, 48, 0.12)", "rgba(224, 160, 48, 0.4)"),
+            "disconnected": ("#E74C3C", "rgba(231, 76, 60, 0.12)", "rgba(231, 76, 60, 0.4)"),
         }
+        color, background, border = status_pill_styles[self._connection_status]
         status_label = self._diagnostics_labels["status"]
         status_label.setText(self._connection_status.capitalize())
-        status_label.setStyleSheet(
-            "font-size: 14px; font-weight: 600; color: "
-            + status_colors[self._connection_status]
-        )
+        status_label.setStyleSheet(f"""
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            color: {color};
+            background-color: {background};
+            border: 1px solid {border};
+            border-radius: 3px;
+            padding: 3px 10px;
+        """)
 
         if self._connected_since is not None:
             elapsed = int(time.time() - self._connected_since)
@@ -254,14 +262,16 @@ class OrderBookModule(ArgusModule):
         self._selected_interval_seconds = button.property("interval_seconds")
         self._fetch_candles()
 
+    def _format_feed_row(self, row: dict) -> str:
+        return f"{row['side'].upper():>3}  {row['price']:>12,.2f}  {row['size']:>10.4f}"
+
     def _on_tick(self, row: dict) -> None:
         symbol = row["symbol"]
         self._feed_log[symbol].append(row)
         if symbol != self._selected_symbol:
             return
-        
-        text = f"{row['side'].upper():>3}   {row['price']:,.2f}     {row['size']:.4f}"
-        item = QListWidgetItem(text)
+
+        item = QListWidgetItem(self._format_feed_row(row))
         item.setForeground(QColor("#2ECC71") if row["side"] == "bid" else QColor("#E74C3C"))
         self._feed_log_widget.insertItem(0, item)
         while self._feed_log_widget.count() > 40:
@@ -270,8 +280,7 @@ class OrderBookModule(ArgusModule):
     def _rebuild_feed_log_widget(self) -> None:
         self._feed_log_widget.clear()
         for row in reversed(self._feed_log[self._selected_symbol]):
-            text = f"{row['side'].upper():>3}  {row['price']:,.2f}  {row['size']:.4f}"
-            item = QListWidgetItem(text)
+            item = QListWidgetItem(self._format_feed_row(row))
             item.setForeground(QColor("#2ECC71") if row["side"] == "bid" else QColor("#E74C3C"))
             self._feed_log_widget.addItem(item)
 
@@ -542,13 +551,9 @@ class OrderBookModule(ArgusModule):
         self._depth_plot.getViewBox().disableAutoRange()
         depth_layout.addWidget(self._depth_plot)
 
-        ladder_frame.setFixedWidth(340)
-        depth_frame.setFixedWidth(700)
-
         depth_row = QHBoxLayout()
-        depth_row.addWidget(ladder_frame)
-        depth_row.addWidget(depth_frame)
-        depth_row.addStretch()
+        depth_row.addWidget(ladder_frame, 3)
+        depth_row.addWidget(depth_frame, 7)
         outer_layout.addLayout(depth_row)
 
         feed_log_frame = QFrame()
@@ -618,7 +623,7 @@ class OrderBookModule(ArgusModule):
 
         self._depth_refit_timer = QTimer(widget)
         self._depth_refit_timer.timeout.connect(self._periodic_depth_refit)
-        self._depth_refit_timer.start(3000)
+        self._depth_refit_timer.start(7000)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
