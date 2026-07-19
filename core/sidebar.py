@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QListWidget, QListWidgetItem, QWidget, QVBoxLayout, QLabel
-from PySide6.QtCore import Signal, QTimer
+from PySide6.QtWidgets import QListWidget, QListWidgetItem, QWidget, QVBoxLayout, QLabel, QHBoxLayout
+from PySide6.QtCore import Signal, QTimer, Qt
 from core.base_module import ArgusModule
 
 class Sidebar(QListWidget):
@@ -20,17 +20,35 @@ class Sidebar(QListWidget):
 
     def _build_row_widget(self, module: ArgusModule) -> tuple[QWidget, QLabel]:
         row = QWidget()
-        layout = QVBoxLayout(row)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(2)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(12, 8, 12, 8)
+        row_layout.setSpacing(10)
+
+        initial = module.get_sidebar_label()[0].upper()
+        badge = QLabel(initial)
+        badge.setFixedSize(28, 28)
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setStyleSheet("""
+            background-color: #1E3F70;
+            color: #E8E8E8;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 14px;
+        """)
+        row_layout.addWidget(badge)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
 
         name_label = QLabel(module.get_sidebar_label())
         name_label.setStyleSheet("font-size: 13px; font-weight: 600; color: #E8E8E8;")
-        layout.addWidget(name_label)
+        text_col.addWidget(name_label)
 
         preview_label = QLabel(module.get_status_preview())
         preview_label.setStyleSheet("font-size: 11px; color: #888888;")
-        layout.addWidget(preview_label)
+        text_col.addWidget(preview_label)
+
+        row_layout.addLayout(text_col)
 
         return row, preview_label
 
