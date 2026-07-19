@@ -1,5 +1,8 @@
+from pathlib import Path
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QWidget, QVBoxLayout, QLabel, QHBoxLayout
-from PySide6.QtCore import Signal, QTimer, Qt
+from PySide6.QtCore import Signal, QTimer, Qt, QRectF
+from PySide6.QtGui import QPainter
+from PySide6.QtSvg import QSvgRenderer
 from core.base_module import ArgusModule
 
 class Sidebar(QListWidget):
@@ -9,6 +12,8 @@ class Sidebar(QListWidget):
 
     def __init__(self, modules: list[ArgusModule], parent: QWidget | None = None):
         super().__init__(parent)
+        bg_path = Path(__file__).parent.parent / "dark_theme_background.svg"
+        self._bg_renderer = QSvgRenderer(str(bg_path))
         self._modules = modules
         self._preview_labels: list[QLabel] = []
         self._populate()
@@ -18,6 +23,12 @@ class Sidebar(QListWidget):
         self._refresh_timer.timeout.connect(self._refresh_previews)
         self._refresh_timer.start(2000)
 
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self.viewport())
+        self._bg_renderer.render(painter, QRectF(0, 0, self.viewport().width(), self.viewport().height()))
+        painter.end()
+        super().paintEvent(event)
+        
     def _build_row_widget(self, module: ArgusModule) -> tuple[QWidget, QLabel]:
         row = QWidget()
         row_layout = QHBoxLayout(row)
