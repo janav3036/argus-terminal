@@ -61,7 +61,13 @@ QListWidget, QTableWidget {
     gridline-color: #2A2A2A;
 }
 
-QListWidget::item:selected, QTableWidget::item:selected {
+QListWidget::item:selected {
+    background-color: #1E3F70;
+    border-left: 3px solid #2B5EA7;
+
+}
+
+QTableWidget::item:selected {
     background-color: #1E3F70;
 }
 

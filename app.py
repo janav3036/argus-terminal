@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from PySide6.QtCore import Qt, QCoreApplication
+from PySide6.QtCore import Qt, QCoreApplication, QPropertyAnimation, QEasingCurve
 from PySide6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QStackedWidget, QWidget, QVBoxLayout, QPushButton
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -22,7 +22,8 @@ class ArgusMainWindow(QMainWindow):
 
         self._sidebar = Sidebar(self._modules)
         self._sidebar.module_selected.connect(self._show_module)
-        self._sidebar.setFixedWidth(240)
+        self._sidebar.setMinimumWidth(0)
+        self._sidebar.setMaximumWidth(240)
 
         self._content = QStackedWidget()
 
@@ -73,7 +74,13 @@ class ArgusMainWindow(QMainWindow):
 
 
     def _toggle_sidebar(self) -> None:
-        self._sidebar.setVisible(not self._sidebar.isVisible())
+        target_width = 0 if self._sidebar.maximumWidth() > 0 else 240
+        self._sidebar_animation = QPropertyAnimation(self._sidebar, b"maximumWidth")
+        self._sidebar_animation.setDuration(200)
+        self._sidebar_animation.setStartValue(self._sidebar.maximumWidth())
+        self._sidebar_animation.setEndValue(target_width)
+        self._sidebar_animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self._sidebar_animation.start()
 
     def _show_module(self, module: ArgusModule) -> None:
         if module not in self._module_widgets:
