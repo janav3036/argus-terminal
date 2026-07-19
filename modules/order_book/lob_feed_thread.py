@@ -35,10 +35,12 @@ class LOBFeedThread(ArgusDataThread):
             self.status_changed.emit("live")
         
         touched = set()
+        latest_ts: dict[str, int] = {}
         for row in rows:
             book = self._books[row["symbol"]]
             book.apply(row)
             touched.add(row["symbol"])
+            latest_ts[row["symbol"]] = row["timestamp_exchange"]
             self.tick_received.emit(row)
 
         for symbol in touched:
@@ -48,6 +50,7 @@ class LOBFeedThread(ArgusDataThread):
                 "symbol": symbol,
                 "top_bids": book.top_bids(8),
                 "top_asks": book.top_asks(8),
+                "timestamp_exchange": latest_ts[symbol],
                 **features,
             })
 

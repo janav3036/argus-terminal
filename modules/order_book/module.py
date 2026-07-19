@@ -133,10 +133,15 @@ class OrderBookModule(ArgusModule):
         return self._thread.status_changed if self._thread is not None else None
 
 
-    def _update_active_candle(self, price: float) -> None:
+    def _update_active_candle(self, price: float, timestamp_ms: int) -> None:
         if self._active_bucket is None:
             return
-        bucket = int(time.time() // self._selected_interval_seconds)
+        # Bucket against the exchange's own timestamp, not local wall-clock
+        # time - matches exactly how the historical REST-fetched candles are
+        # bucketed (bybit_kline.py: int(start_ms/1000 // interval_seconds)),
+        # so the live-tailed candle can't drift out of alignment with them
+        # due to local clock skew or WS processing latency.
+        bucket = int(timestamp_ms / 1000 // self._selected_interval_seconds)
 
         if bucket!=self._active_bucket:
             self._active_candles.append(tuple(self._active_current_candle))
@@ -166,7 +171,7 @@ class OrderBookModule(ArgusModule):
         if mid is not None:
             self._price_history[symbol].append(mid)
             if symbol == self._selected_symbol:
-                self._update_active_candle(mid)
+                self._update_active_candle(mid, payload["timestamp_exchange"])
         if symbol == self._selected_symbol:
             self._refresh_display()
 
