@@ -50,9 +50,9 @@ class ArgusMainWindow(QMainWindow):
 
         row = QWidget()
         row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.addWidget(self._sidebar_toggle_btn)
+        row_layout.setContentsMargins(12, 12, 0, 12)
         row_layout.addWidget(self._sidebar)
+        row_layout.addWidget(self._sidebar_toggle_btn)
         row_layout.addWidget(self._content)
 
         central = QWidget()
