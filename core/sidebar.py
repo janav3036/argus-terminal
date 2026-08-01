@@ -87,6 +87,7 @@ class Sidebar(QWidget):
     """Floating nav card: branding header above the module list."""
 
     module_selected = Signal(ArgusModule)
+    home_requested = Signal()
 
     def __init__(self, modules: list[ArgusModule], parent: QWidget | None = None):
         super().__init__(parent)
@@ -111,6 +112,8 @@ class Sidebar(QWidget):
 
     def _build_header(self) -> QWidget:
         header = QWidget()
+        header.mousePressEvent = lambda event: (self._list.clearSelection(), self.home_requested.emit())
+
         header.setObjectName("sidebarHeader")
         header.setAttribute(Qt.WA_StyledBackground, True)
         header_layout = QVBoxLayout(header)

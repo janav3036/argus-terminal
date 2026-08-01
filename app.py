@@ -8,7 +8,10 @@ from core.base_module import ArgusModule
 from core.sidebar import Sidebar 
 from core.status_bar import StatusBar
 from core.top_bar import TopBar
+from home.home_page import HomePage
 from module_registry import MODULES
+from data.watchlist_feed import WatchlistFeedThread
+from data.sector_feed import SectorFeedThread
 from data.yfinance_feed import YFinanceFeedThread
 
 class ArgusMainWindow(QMainWindow):
@@ -42,11 +45,18 @@ class ArgusMainWindow(QMainWindow):
         self._webengine_warmup.setFixedSize(0, 0)
         self._content.addWidget(self._webengine_warmup)
 
+        self._home_page = HomePage()
+        self._content.addWidget(self._home_page)
+        self._content.setCurrentWidget(self._home_page)
+
         self._top_bar = TopBar()
 
         self._sidebar_toggle_btn = QPushButton("☰")
         self._sidebar_toggle_btn.setFixedWidth(28)
         self._sidebar_toggle_btn.clicked.connect(self._toggle_sidebar)
+        self._sidebar.home_requested.connect(
+            lambda: self._content.setCurrentWidget(self._home_page)
+        )
 
         row = QWidget()
         row_layout = QHBoxLayout(row)
@@ -71,6 +81,14 @@ class ArgusMainWindow(QMainWindow):
             lambda state: self._status_bar.set_status("yfinance", state)
         )
         self._yfinance_thread.start()
+
+        self._watchlist_thread = WatchlistFeedThread()
+        self._watchlist_thread.data_updated.connect(self._home_page.watchlist_chart.update_data)
+        self._watchlist_thread.start()
+
+        self._sector_thread = SectorFeedThread()
+        self._sector_thread.data_updated.connect(self._home_page.sector_heatmap.update_data)
+        self._sector_thread.start()
 
 
     def _toggle_sidebar(self) -> None:
@@ -100,6 +118,10 @@ class ArgusMainWindow(QMainWindow):
             module.shutdown()
         self._yfinance_thread.requestInterruption()
         self._yfinance_thread.wait()
+        self._watchlist_thread.requestInterruption()
+        self._watchlist_thread.wait()
+        self._sector_thread.requestInterruption()
+        self._sector_thread.wait()
         super().closeEvent(event)
 
 def run() -> None:
