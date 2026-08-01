@@ -29,6 +29,7 @@ class HomePage(QWidget):
         conditions_column.addWidget(_placeholder_panel("Yield Curve Snapshot"))
         self.fx_commodities_panel = FxCommoditiesPanel()
         conditions_column.addWidget(self.fx_commodities_panel)
+        conditions_column.addStretch()
         conditions_widget = QWidget()
         conditions_widget.setLayout(conditions_column)
 
