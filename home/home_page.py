@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QFrame, QLabel
 from home.watchlist_chart import WatchlistChart
 from home.sector_heatmap import SectorHeatmap
+from home.fx_commodities_panel import FxCommoditiesPanel
 
 def _placeholder_panel(title: str) -> QFrame:
     frame = QFrame()
@@ -26,7 +27,8 @@ class HomePage(QWidget):
         conditions_column = QVBoxLayout()
         conditions_column.addWidget(_placeholder_panel("Volatility Conditions"))
         conditions_column.addWidget(_placeholder_panel("Yield Curve Snapshot"))
-        conditions_column.addWidget(_placeholder_panel("FX & Commodities"))
+        self.fx_commodities_panel = FxCommoditiesPanel()
+        conditions_column.addWidget(self.fx_commodities_panel)
         conditions_widget = QWidget()
         conditions_widget.setLayout(conditions_column)
 

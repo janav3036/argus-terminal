@@ -13,6 +13,7 @@ from module_registry import MODULES
 from data.watchlist_feed import WatchlistFeedThread
 from data.sector_feed import SectorFeedThread
 from data.yfinance_feed import YFinanceFeedThread
+from data.fx_commodities_feed import FxCommoditiesFeedThread
 
 class ArgusMainWindow(QMainWindow):
     def __init__(self):
@@ -90,6 +91,10 @@ class ArgusMainWindow(QMainWindow):
         self._sector_thread.data_updated.connect(self._home_page.sector_heatmap.update_data)
         self._sector_thread.start()
 
+        self._fx_commodities_thread = FxCommoditiesFeedThread()
+        self._fx_commodities_thread.data_updated.connect(self._home_page.fx_commodities_panel.update_data)
+        self._fx_commodities_thread.start()
+
 
     def _toggle_sidebar(self) -> None:
         target_width = 0 if self._sidebar.maximumWidth() > 0 else 240
@@ -122,6 +127,8 @@ class ArgusMainWindow(QMainWindow):
         self._watchlist_thread.wait()
         self._sector_thread.requestInterruption()
         self._sector_thread.wait()
+        self._fx_commodities_thread.requestInterruption()
+        self._fx_commodities_thread.wait()
         super().closeEvent(event)
 
 def run() -> None:
