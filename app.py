@@ -134,6 +134,7 @@ class ArgusMainWindow(QMainWindow):
 def run() -> None:
     QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
 
     stylesheet_path = Path(__file__).parent / "assets" / "styles" / "argus_dark.qss"
     app.setStyleSheet(stylesheet_path.read_text())
