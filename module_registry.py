@@ -4,6 +4,7 @@ from modules.order_book.module import OrderBookModule
 from modules.rates.module import RatesModule
 from modules.options_pricer.module import OptionsPricerModule
 from modules.vol_regime.module import VolRegimeModule
+from modules.yield_pca.module import YieldPCAModule
 
 MODULES: list[ArgusModule] = [
     VolatilityLabModule(),
@@ -11,4 +12,5 @@ MODULES: list[ArgusModule] = [
     RatesModule(),
     OptionsPricerModule(),
     VolRegimeModule(),
+    YieldPCAModule(),
 ]
